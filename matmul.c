@@ -11,7 +11,7 @@
 **
 **  HISTORY: Written by Tim Mattson, Nov 1999.
 */
-#include <malloc.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <mpi.h>

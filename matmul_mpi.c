@@ -11,7 +11,7 @@
 **
 **  HISTORY: Written by Tim Mattson, Nov 1999.
 */
-#include <malloc.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <mpi.h>
@@ -66,15 +66,76 @@ int main(int argc, char **argv)
     start_time = MPI_Wtime();
     /* =========================== AREA OF INTEREST ============================ */
 
+    int root = 0;
+    MPI_Comm world_comm = MPI_COMM_WORLD;
+    int A_rows = Ndim;
+    int A_cols = Pdim;
+
+    int B_rows = Pdim;
+    int B_cols = Mdim;
+
+    int C_rows = Ndim;
+    int C_cols = Mdim;
+
+    // send matrix B to all ranks
+    int B_values = B_rows * B_cols;
+    MPI_Bcast(B, B_values, MPI_DOUBLE, root, world_comm);
+
+    // scatter A rows to all ranks
+    int total_ranks = size;
+    int local_rows =  A_rows / total_ranks; 
+    int local_A_values = local_rows * A_cols; //numero di elementi di A, quindi numero di righe * Acols
+
+    double* local_A = (double*) malloc(local_A_values * sizeof(double));
+    MPI_Scatter(A, local_A_values, MPI_DOUBLE, local_A, local_A_values, MPI_DOUBLE, root, world_comm);
+
+
+    //alloca C = local_rows * C_cols e compute locale
+    //approccio letterale di moltiplicazione
+    int local_C_values = local_rows * C_cols;
+    double* local_C = (double*) calloc(local_C_values, sizeof(double)); //clean mem
+
+    // for (int row = 0; row < local_rows; row++){ // righe di a locale
+    //     for (int col = 0; col < B_cols; col ++){ // colonne di b, c
+    //         for (int k = 0; k < A_cols; k++){   //somma lungo la riga di A + colonna di B
+    //             local_C[row * C_cols + col] += local_A[row * A_cols + k] * B[k * B_cols + col];
+    //             //ps. è sempre colonne totali * riga attaule + col attuale
+    //         }
+    //     }
+    // }
+
+
+    //ottimizzato
+    for (int i = 0; i < local_rows; i++){
+        for(int j = 0; j < A_cols; j++){ //itera su righe di B
+            double a = local_A[A_cols * i + j];
+            for (int k = 0; k < B_cols; k ++){ //itera su col di B / C
+                double b = B[B_cols * j + k];
+                local_C[C_cols * i + k] += a * b; //c ha la stessa riga di a
+            }
+        }
+    }
+
+
+
+
     /* Do the matrix product */
-    for (i=0; i<Ndim; i++){
-		for (j=0; j<Mdim; j++){
-			for(k=0;k<Pdim;k++){
-				/* C(i,j) = sum(over k) A(i,k) * B(k,j) */
-				*(C+(i*Ndim+j)) += *(A+(i*Ndim+k)) *  *(B+(k*Pdim+j));
-			}
-		}
-	}
+    // for (i=0; i<Ndim; i++){
+	// 	for (j=0; j<Mdim; j++){
+	// 		for(k=0;k<Pdim;k++){
+	// 			/* C(i,j) = sum(over k) A(i,k) * B(k,j) */
+	// 			*(C+(i*Ndim+j)) += *(A+(i*Ndim+k)) *  *(B+(k*Pdim+j));
+	// 		}
+	// 	}
+	// }
+
+    // gather all local C matrixes across ranks in C matrix
+    MPI_Gather(local_C, local_C_values, MPI_DOUBLE,
+               C, local_C_values, MPI_DOUBLE, root, world_comm);
+    
+    //cleanup local A and C 
+    free(local_A); free(local_C);
+
 
     /* ========================= END AREA OF INTEREST ========================== */
 	run_time = MPI_Wtime() - start_time;
